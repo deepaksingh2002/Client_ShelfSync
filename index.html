@@ -1,0 +1,436 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>ShelfSync Products</title>
+<style>
+  :root {
+    color-scheme: light;
+    --bg: #f7f7f4;
+    --panel: #ffffff;
+    --text: #191a17;
+    --muted: #696d63;
+    --line: #deded7;
+    --accent: #245b4f;
+    --accent-soft: #e4f0ec;
+    --danger: #9a2f2f;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    min-height: 100vh;
+    background: var(--bg);
+    color: var(--text);
+    font-family: Arial, Helvetica, sans-serif;
+  }
+
+  main {
+    width: min(1040px, calc(100% - 32px));
+    margin: 32px auto;
+  }
+
+  header {
+    display: flex;
+    justify-content: space-between;
+    gap: 16px;
+    align-items: end;
+    margin-bottom: 18px;
+  }
+
+  h1 {
+    margin: 0 0 6px;
+    font-size: 28px;
+    line-height: 1.15;
+  }
+
+  p {
+    margin: 0;
+    color: var(--muted);
+  }
+
+  .toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    align-items: center;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 12px;
+    margin-bottom: 14px;
+  }
+
+  select,
+  button {
+    min-height: 38px;
+    border-radius: 6px;
+    font-size: 14px;
+  }
+
+  select {
+    min-width: 180px;
+    border: 1px solid var(--line);
+    background: #fff;
+    color: var(--text);
+    padding: 0 10px;
+  }
+
+  button {
+    border: 0;
+    background: var(--accent);
+    color: #fff;
+    padding: 0 14px;
+    cursor: pointer;
+  }
+
+  button.secondary {
+    border: 1px solid var(--line);
+    background: #fff;
+    color: var(--text);
+  }
+
+  button:disabled {
+    cursor: not-allowed;
+    opacity: 0.55;
+  }
+
+  .status {
+    margin-left: auto;
+    color: var(--muted);
+    font-size: 14px;
+  }
+
+  .message {
+    display: none;
+    margin-bottom: 14px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--panel);
+    padding: 14px;
+    color: var(--muted);
+  }
+
+  .message strong {
+    display: block;
+    margin-bottom: 4px;
+    color: var(--text);
+  }
+
+  .message.error {
+    border-color: #e1b5b5;
+    color: var(--danger);
+  }
+
+  .table-wrap {
+    overflow-x: auto;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+  }
+
+  table {
+    width: 100%;
+    min-width: 700px;
+    border-collapse: collapse;
+    font-size: 14px;
+  }
+
+  th,
+  td {
+    text-align: left;
+    padding: 12px 14px;
+    border-bottom: 1px solid var(--line);
+    white-space: nowrap;
+  }
+
+  th {
+    color: var(--muted);
+    background: #fbfbf8;
+    font-size: 12px;
+    font-weight: 700;
+    text-transform: uppercase;
+  }
+
+  tbody tr:last-child td {
+    border-bottom: 0;
+  }
+
+  .category-pill {
+    display: inline-block;
+    border-radius: 999px;
+    background: var(--accent-soft);
+    color: var(--accent);
+    padding: 4px 9px;
+    font-size: 12px;
+    font-weight: 700;
+  }
+
+  .footer {
+    display: flex;
+    justify-content: center;
+    margin-top: 16px;
+  }
+
+  @media (max-width: 720px) {
+    header {
+      display: block;
+    }
+
+    .status {
+      width: 100%;
+      margin-left: 0;
+    }
+  }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <div>
+      <h1>ShelfSync Products</h1>
+      <p>Browse your product catalog by newest first.</p>
+    </div>
+  </header>
+
+  <section class="toolbar" aria-label="Product controls">
+    <select id="categoryFilter">
+      <option value="">All categories</option>
+    </select>
+    <button id="resetBtn" class="secondary" type="button">Reset</button>
+    <button id="refreshBtn" class="secondary" type="button">Refresh</button>
+    <span class="status" id="statusLine">Starting...</span>
+  </section>
+
+  <section class="message" id="messageBox" aria-live="polite"></section>
+
+  <section class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Category</th>
+          <th>Price</th>
+          <th>Created At</th>
+        </tr>
+      </thead>
+      <tbody id="productBody">
+        <tr>
+          <td colspan="4">Loading products...</td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <div class="footer">
+    <button id="loadMoreBtn" type="button">Load more</button>
+  </div>
+</main>
+
+<script>
+  const LOCAL_BACKEND_ORIGIN = "http://localhost:5000";
+  const PRODUCTION_BACKEND_ORIGIN = "https://shelfsync-85ki.onrender.com";
+  const API_ORIGIN = window.location.port === "5000" ? LOCAL_BACKEND_ORIGIN : PRODUCTION_BACKEND_ORIGIN;
+  const API_BASE = `${API_ORIGIN}/api/v1/products`;
+  const REQUEST_TIMEOUT_MS = 8000;
+
+  let nextCursor = null;
+  let currentCategory = "";
+  let totalLoaded = 0;
+
+  const productBody = document.getElementById("productBody");
+  const loadMoreBtn = document.getElementById("loadMoreBtn");
+  const refreshBtn = document.getElementById("refreshBtn");
+  const statusLine = document.getElementById("statusLine");
+  const categoryFilter = document.getElementById("categoryFilter");
+  const resetBtn = document.getElementById("resetBtn");
+  const messageBox = document.getElementById("messageBox");
+
+  document.addEventListener("DOMContentLoaded", init);
+
+  function init() {
+    loadMoreBtn.addEventListener("click", () => fetchProducts());
+    refreshBtn.addEventListener("click", refreshProducts);
+    resetBtn.addEventListener("click", resetFilters);
+    categoryFilter.addEventListener("change", handleCategoryChange);
+
+    loadCategories();
+    fetchProducts({ reset: true });
+  }
+
+  async function loadCategories() {
+    try {
+      const json = await fetchJson(`${API_BASE}/categories`);
+      const categories = Array.isArray(json.data) ? json.data : [];
+      categoryFilter.length = 1;
+
+      categories.forEach((cat) => {
+        const opt = document.createElement("option");
+        opt.value = cat;
+        opt.textContent = cat;
+        categoryFilter.appendChild(opt);
+      });
+    } catch (err) {
+      console.error(err);
+      showMessage("Categories unavailable", "The category filter could not be loaded.", true);
+    }
+  }
+
+  async function fetchProducts({ reset = false } = {}) {
+    setLoading(true);
+    hideMessage();
+
+    const params = new URLSearchParams({ limit: "20" });
+    if (currentCategory) params.set("category", currentCategory);
+    if (!reset && nextCursor) params.set("cursor", nextCursor);
+
+    try {
+      const json = await fetchJson(`${API_BASE}?${params.toString()}`);
+      const payload = json.data || {};
+      const products = Array.isArray(payload.data) ? payload.data : [];
+
+      if (reset) {
+        clearProducts();
+        totalLoaded = 0;
+      }
+
+      products.forEach(renderProduct);
+
+      totalLoaded += products.length;
+      nextCursor = payload.nextCursor || null;
+      loadMoreBtn.disabled = !nextCursor;
+      loadMoreBtn.textContent = nextCursor ? "Load more" : "No more products";
+
+      if (totalLoaded === 0) {
+        renderEmptyRow("No products found.");
+        showMessage(
+          "No products yet",
+          "The frontend is working, but MongoDB returned an empty products list. From the ShelfSync folder, run npm run seed, then click Refresh."
+        );
+      }
+
+      statusLine.textContent = currentCategory
+        ? `Showing ${totalLoaded} products in ${currentCategory}`
+        : `Showing ${totalLoaded} products`;
+    } catch (err) {
+      console.error(err);
+      if (reset) clearProducts();
+      renderEmptyRow("Unable to load products.");
+      showMessage(
+        "Backend not reachable",
+        `The page tried to load ${API_BASE}. Start the backend with npm start from the ShelfSync folder.`,
+        true
+      );
+      statusLine.textContent = "Connection error";
+      loadMoreBtn.disabled = true;
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function fetchJson(url) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+
+    try {
+      const res = await fetch(url, { signal: controller.signal });
+      if (!res.ok) throw new Error(`Request failed with ${res.status}`);
+      return await res.json();
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
+  function renderProduct(product) {
+    const tr = document.createElement("tr");
+    appendCell(tr, product.name);
+    appendCategoryCell(tr, product.category);
+    appendCell(tr, formatPrice(product.price));
+    appendCell(tr, formatDate(product.createdAt));
+    productBody.appendChild(tr);
+  }
+
+  function appendCell(row, value) {
+    const td = document.createElement("td");
+    td.textContent = value ?? "";
+    row.appendChild(td);
+  }
+
+  function appendCategoryCell(row, value) {
+    const td = document.createElement("td");
+    const span = document.createElement("span");
+    span.className = "category-pill";
+    span.textContent = value || "Uncategorized";
+    td.appendChild(span);
+    row.appendChild(td);
+  }
+
+  function formatPrice(value) {
+    const price = Number(value);
+    return Number.isFinite(price)
+      ? new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR" }).format(price)
+      : "";
+  }
+
+  function formatDate(value) {
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? "" : date.toLocaleString();
+  }
+
+  function clearProducts() {
+    productBody.replaceChildren();
+  }
+
+  function renderEmptyRow(message) {
+    const tr = document.createElement("tr");
+    const td = document.createElement("td");
+    td.colSpan = 4;
+    td.textContent = message;
+    tr.appendChild(td);
+    productBody.appendChild(tr);
+  }
+
+  function setLoading(isLoading) {
+    loadMoreBtn.disabled = isLoading || !nextCursor;
+    refreshBtn.disabled = isLoading;
+    categoryFilter.disabled = isLoading;
+    resetBtn.disabled = isLoading;
+    statusLine.textContent = isLoading ? "Loading..." : statusLine.textContent;
+  }
+
+  function showMessage(title, detail, isError = false) {
+    messageBox.style.display = "block";
+    messageBox.className = isError ? "message error" : "message";
+    messageBox.replaceChildren();
+
+    const strong = document.createElement("strong");
+    strong.textContent = title;
+    const text = document.createElement("span");
+    text.textContent = detail;
+    messageBox.append(strong, text);
+  }
+
+  function hideMessage() {
+    messageBox.style.display = "none";
+  }
+
+  function refreshProducts() {
+    nextCursor = null;
+    fetchProducts({ reset: true });
+  }
+
+  function resetFilters() {
+    categoryFilter.value = "";
+    currentCategory = "";
+    refreshProducts();
+  }
+
+  function handleCategoryChange(event) {
+    currentCategory = event.target.value;
+    refreshProducts();
+  }
+</script>
+</body>
+</html>
