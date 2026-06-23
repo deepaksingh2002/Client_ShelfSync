@@ -232,9 +232,9 @@
 <script>
   const LOCAL_BACKEND_ORIGIN = "http://localhost:5000";
   const PRODUCTION_BACKEND_ORIGIN = "https://shelfsync-85ki.onrender.com";
-  const API_ORIGIN = window.location.port === "5000" ? LOCAL_BACKEND_ORIGIN : PRODUCTION_BACKEND_ORIGIN;
+  const API_ORIGIN = getApiOrigin();
   const API_BASE = `${API_ORIGIN}/api/v1/products`;
-  const REQUEST_TIMEOUT_MS = 8000;
+  const REQUEST_TIMEOUT_MS = 45000;
 
   let nextCursor = null;
   let currentCategory = "";
@@ -249,6 +249,30 @@
   const messageBox = document.getElementById("messageBox");
 
   document.addEventListener("DOMContentLoaded", init);
+
+  function getApiOrigin() {
+    const params = new URLSearchParams(window.location.search);
+    const configuredOrigin =
+      window.SHELFSYNC_API_ORIGIN ||
+      params.get("apiOrigin") ||
+      localStorage.getItem("shelfsyncApiOrigin");
+
+    if (configuredOrigin) {
+      return configuredOrigin.replace(/\/$/, "");
+    }
+
+    if (window.location.protocol === "file:") {
+      return LOCAL_BACKEND_ORIGIN;
+    }
+
+    if (["localhost", "127.0.0.1"].includes(window.location.hostname)) {
+      return ["", "5000", "8000"].includes(window.location.port)
+        ? window.location.origin
+        : LOCAL_BACKEND_ORIGIN;
+    }
+
+    return PRODUCTION_BACKEND_ORIGIN;
+  }
 
   function init() {
     loadMoreBtn.addEventListener("click", () => fetchProducts());
@@ -307,7 +331,7 @@
         renderEmptyRow("No products found.");
         showMessage(
           "No products yet",
-          "The frontend is working, but MongoDB returned an empty products list. From the ShelfSync folder, run npm run seed, then click Refresh."
+          "The backend is connected, but the products collection is empty. Seed the production database, then click Refresh."
         );
       }
 
@@ -336,8 +360,14 @@
 
     try {
       const res = await fetch(url, { signal: controller.signal });
-      if (!res.ok) throw new Error(`Request failed with ${res.status}`);
+      if (!res.ok) throw new Error(`Request failed with ${res.status} for ${url}`);
       return await res.json();
+    } catch (err) {
+      if (err.name === "AbortError") {
+        throw new Error(`Request timed out while loading ${url}`);
+      }
+
+      throw err;
     } finally {
       clearTimeout(timeout);
     }
