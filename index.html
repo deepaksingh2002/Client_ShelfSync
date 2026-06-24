@@ -201,6 +201,7 @@
     </select>
     <button id="resetBtn" class="secondary" type="button">Reset</button>
     <button id="refreshBtn" class="secondary" type="button">Refresh</button>
+    <button id="seedBtn" class="secondary" type="button">Seed Data</button>
     <span class="status" id="statusLine">Starting...</span>
   </section>
 
@@ -243,6 +244,7 @@
   const productBody = document.getElementById("productBody");
   const loadMoreBtn = document.getElementById("loadMoreBtn");
   const refreshBtn = document.getElementById("refreshBtn");
+  const seedBtn = document.getElementById("seedBtn");
   const statusLine = document.getElementById("statusLine");
   const categoryFilter = document.getElementById("categoryFilter");
   const resetBtn = document.getElementById("resetBtn");
@@ -261,22 +263,14 @@
       return configuredOrigin.replace(/\/$/, "");
     }
 
-    if (window.location.protocol === "file:") {
-      return LOCAL_BACKEND_ORIGIN;
-    }
-
-    if (["localhost", "127.0.0.1"].includes(window.location.hostname)) {
-      return ["", "5000", "8000"].includes(window.location.port)
-        ? window.location.origin
-        : LOCAL_BACKEND_ORIGIN;
-    }
-
+    // Default to production backend to use the deployed link directly
     return PRODUCTION_BACKEND_ORIGIN;
   }
 
   function init() {
     loadMoreBtn.addEventListener("click", () => fetchProducts());
     refreshBtn.addEventListener("click", refreshProducts);
+    seedBtn.addEventListener("click", handleSeed);
     resetBtn.addEventListener("click", resetFilters);
     categoryFilter.addEventListener("change", handleCategoryChange);
 
@@ -425,6 +419,7 @@
   function setLoading(isLoading) {
     loadMoreBtn.disabled = isLoading || !nextCursor;
     refreshBtn.disabled = isLoading;
+    seedBtn.disabled = isLoading;
     categoryFilter.disabled = isLoading;
     resetBtn.disabled = isLoading;
     statusLine.textContent = isLoading ? "Loading..." : statusLine.textContent;
@@ -460,6 +455,46 @@
   function handleCategoryChange(event) {
     currentCategory = event.target.value;
     refreshProducts();
+  }
+
+  async function handleSeed() {
+    const isConfirmed = confirm(
+      "Are you sure you want to seed the database? This will clear all existing products and populate 500 mock products."
+    );
+    if (!isConfirmed) return;
+
+    setLoading(true);
+    hideMessage();
+    statusLine.textContent = "Seeding database...";
+
+    try {
+      const res = await fetch(`${API_BASE}/seed`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ count: 500 }),
+      });
+
+      if (!res.ok) {
+        throw new Error(`Seeding request failed with status ${res.status}`);
+      }
+
+      const json = await res.json();
+      showMessage(
+        "Database Seeded",
+        `Successfully deleted old products and inserted ${json.data.seeded || 500} new products!`
+      );
+
+      await loadCategories();
+      refreshProducts();
+    } catch (err) {
+      console.error(err);
+      showMessage("Seeding failed", err.message, true);
+      statusLine.textContent = "Error seeding";
+    } finally {
+      setLoading(false);
+    }
   }
 </script>
 </body>
